@@ -426,48 +426,6 @@ with st.sidebar:
         if st.button("🪄 שיבוץ אוטומטי", type="primary", use_container_width=True):
             st.session_state.trigger_auto = True
             st.rerun()
-        
-        if st.button("📥 טען מ-Database", use_container_width=True):
-            if not db:
-                st.error("❌ Database לא זמין")
-            else:
-                try:
-                    with st.spinner('טוען מ-Database...'):
-                        shifts_ref = db.collection('shifts')
-                        docs = shifts_ref.stream()
-                        
-                        loaded_schedule = {}
-                        loaded_cancelled = set()
-                        loaded_assigned = {}
-                        
-                        for doc in docs:
-                            data = doc.to_dict()
-                            shift_key = doc.id
-                            
-                            if data.get('status') == 'cancelled':
-                                loaded_cancelled.add(shift_key)
-                            elif data.get('status') == 'assigned' and data.get('employee'):
-                                employee = data['employee']
-                                loaded_schedule[shift_key] = employee
-                                
-                                # עדכון assigned_today
-                                date = data.get('date')
-                                if date:
-                                    if date not in loaded_assigned:
-                                        loaded_assigned[date] = set()
-                                    loaded_assigned[date].add(employee)
-                        
-                        # עדכון Session State
-                        st.session_state.final_schedule = loaded_schedule
-                        st.session_state.cancelled_shifts = loaded_cancelled
-                        st.session_state.assigned_today = loaded_assigned
-                        
-                        st.success(f"✅ נטענו {len(loaded_schedule)} שיבוצים מ-Database!")
-                        st.rerun()
-                        
-                except Exception as e:
-                    st.error(f"❌ שגיאה בטעינה: {str(e)}")
-                    logger.error(f"Load error: {e}", exc_info=True)
     
     if st.session_state.final_schedule:
         if st.button("💾 שמירה ל-Database", type="primary", use_container_width=True):
