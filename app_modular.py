@@ -1,28 +1,12 @@
 """
-מערכת שיבוץ מבצעית 2026 - גרסה מודולרית מלאה
-עם הפרדה מלאה של HTML, CSS ו-Python
+מערכת שיבוץ מבצעית 2026 - גרסה Standalone
+כל הקוד בקובץ אחד - ללא תלות בקבצים חיצוניים
 """
 
 import streamlit as st
 import pandas as pd
 from datetime import datetime
 import logging
-from pathlib import Path
-import sys
-
-# Firebase - אופציונלי
-try:
-    import firebase_admin
-    from firebase_admin import credentials, firestore
-    FIREBASE_AVAILABLE = True
-except ImportError:
-    FIREBASE_AVAILABLE = False
-    logger.warning("Firebase not available - running without database support")
-
-# הוסף את תיקיית components ל-path
-sys.path.insert(0, str(Path(__file__).parent / 'components'))
-
-from html_templates import TemplateManager, ShiftComponents
 
 # הגדרות לוגים
 logging.basicConfig(level=logging.INFO)
@@ -37,6 +21,15 @@ DAYS_HEB = {
 }
 DATE_FORMATS = ['%d/%m/%Y', '%Y-%m-%d', '%d-%m-%Y']
 
+# Firebase - אופציונלי
+try:
+    import firebase_admin
+    from firebase_admin import credentials, firestore
+    FIREBASE_AVAILABLE = True
+except ImportError:
+    FIREBASE_AVAILABLE = False
+    logger.warning("Firebase not installed - running without database")
+
 # הגדרות דף
 st.set_page_config(
     page_title="מערכת שיבוץ מבצעית 2026", 
@@ -45,77 +38,231 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# אתחול Template Manager
-try:
-    from html_templates import TemplateManager, ShiftComponents
-    template_manager = TemplateManager()
-    html_components = ShiftComponents(template_manager)
-    logger.info("Template system initialized successfully")
-except Exception as e:
-    logger.warning(f"Template system not available: {e}")
-    html_components = None
+# CSS מוטמע
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;600;700;800&family=Rubik:wght@400;500;600;700&display=swap');
 
+:root {
+    --primary: #1a4d7a;
+    --accent: #e67e22;
+    --success: #27ae60;
+    --danger: #e74c3c;
+}
 
-# טעינת CSS
-def load_css():
-    """טעינת קובץ CSS חיצוני"""
-    css_path = Path(__file__).parent / "assets" / "style.css"
-    
-    if css_path.exists():
-        with open(css_path, 'r', encoding='utf-8') as f:
-            st.markdown(f'<style>{f.read()}</style>', unsafe_allow_html=True)
-        logger.info("CSS loaded from external file")
-    else:
-        # CSS fallback
-        st.markdown("""
-        <style>
-        @import url('https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;600;700;800&family=Rubik:wght@400;500;600;700&display=swap');
-        html, body, [class*="css"] { font-family: 'Heebo', sans-serif; }
-        [data-testid="stAppViewContainer"] { direction: rtl !important; background: linear-gradient(135deg, #faf8f5 0%, #f4f1ed 100%); }
-        h1 { font-family: 'Rubik', sans-serif !important; font-weight: 800 !important;
-             background: linear-gradient(135deg, #1a4d7a 0%, #2e6ba8 100%);
-             -webkit-background-clip: text !important; -webkit-text-fill-color: transparent !important; }
-        .day-header { background: linear-gradient(135deg, #1a4d7a 0%, #2e6ba8 100%);
-                      color: white; padding: 1.5rem 1rem; border-radius: 12px 12px 0 0;
-                      text-align: center; margin-bottom: 0.5rem; }
-        .day-name { font-size: 1.2rem; font-weight: 700; display: block; margin-bottom: 0.25rem; }
-        .shift-mini { background: linear-gradient(135deg, #fff 0%, #f9f9f9 100%);
-                      padding: 1rem; border-radius: 8px; border-right: 5px solid #1a4d7a;
-                      margin-bottom: 1rem; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
-        .shift-mini:hover { transform: translateX(-3px); }
-        .shift-mini.atan { border-right-color: #e67e22; }
-        .shift-top { display: flex; justify-content: space-between; margin-bottom: 0.5rem; }
-        .shift-title { font-weight: 700; color: #1a4d7a; }
-        .shift-status { padding: 0.5rem; border-radius: 6px; font-weight: 600; margin-bottom: 0.5rem; }
-        .status-assigned { background: rgba(39, 174, 96, 0.1); color: #27ae60; }
-        .status-empty { background: rgba(231, 76, 60, 0.1); color: #e74c3c; }
-        .status-cancelled { background: rgba(127, 140, 141, 0.1); color: #7f8c8d; }
-        </style>
-        """, unsafe_allow_html=True)
-        logger.warning("Using embedded CSS")
+html, body, [class*="css"] { 
+    font-family: 'Heebo', sans-serif; 
+}
 
-load_css()
+[data-testid="stAppViewContainer"],
+[data-testid="stSidebar"],
+[data-testid="stMain"] {
+    direction: rtl !important; 
+    text-align: right !important;
+}
 
+[data-testid="stAppViewContainer"] { 
+    background: linear-gradient(135deg, #faf8f5 0%, #f4f1ed 100%); 
+}
+
+h1 { 
+    font-family: 'Rubik', sans-serif !important; 
+    font-weight: 800 !important;
+    background: linear-gradient(135deg, var(--primary) 0%, #2e6ba8 100%);
+    -webkit-background-clip: text !important; 
+    -webkit-text-fill-color: transparent !important; 
+}
+
+.stButton > button {
+    border-radius: 8px !important;
+    font-weight: 600 !important;
+    transition: all 0.3s ease !important;
+}
+
+.stButton > button[kind="primary"] {
+    background: linear-gradient(135deg, var(--primary) 0%, #2e6ba8 100%) !important;
+    box-shadow: 0 4px 12px rgba(26, 77, 122, 0.3) !important;
+}
+
+.stButton > button[kind="primary"]:hover {
+    transform: translateY(-2px) !important;
+}
+
+.day-header { 
+    background: linear-gradient(135deg, var(--primary) 0%, #2e6ba8 100%);
+    color: white; 
+    padding: 1.5rem 1rem; 
+    border-radius: 12px 12px 0 0;
+    text-align: center; 
+    margin-bottom: 0.5rem;
+    box-shadow: 0 4px 12px rgba(26, 77, 122, 0.3);
+}
+
+.day-name { 
+    font-size: 1.3rem; 
+    font-weight: 700; 
+    display: block; 
+    margin-bottom: 0.25rem;
+    font-family: 'Rubik', sans-serif;
+}
+
+.day-date { 
+    font-size: 0.9rem; 
+    opacity: 0.9; 
+}
+
+.shift-mini { 
+    background: linear-gradient(135deg, #fff 0%, #f9f9f9 100%);
+    padding: 1rem; 
+    border-radius: 8px; 
+    border-right: 5px solid var(--primary);
+    margin-bottom: 1rem; 
+    transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+    position: relative;
+}
+
+.shift-mini::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(135deg, transparent 0%, rgba(26, 77, 122, 0.03) 100%);
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+.shift-mini:hover { 
+    transform: translateX(-8px) translateY(-2px);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.1);
+}
+
+.shift-mini:hover::before {
+    opacity: 1;
+}
+
+.shift-mini.atan { 
+    border-right-color: var(--accent);
+    background: linear-gradient(135deg, #fff9f0 0%, #fef5e7 100%);
+}
+
+.shift-top { 
+    display: flex; 
+    justify-content: space-between; 
+    margin-bottom: 0.75rem;
+    position: relative;
+    z-index: 1;
+}
+
+.shift-title { 
+    font-weight: 700; 
+    font-size: 1.1rem;
+    color: var(--primary);
+    font-family: 'Rubik', sans-serif;
+}
+
+.shift-mini.atan .shift-title { 
+    color: var(--accent);
+}
+
+.shift-badge { 
+    padding: 0.25rem 0.75rem; 
+    border-radius: 20px; 
+    font-size: 0.75rem; 
+    font-weight: 600;
+    background: rgba(26, 77, 122, 0.1); 
+    color: var(--primary);
+}
+
+.shift-mini.atan .shift-badge { 
+    background: rgba(230, 126, 34, 0.1); 
+    color: var(--accent);
+}
+
+.shift-station { 
+    color: #7f8c8d; 
+    font-size: 0.9rem; 
+    margin-bottom: 0.75rem;
+    font-weight: 500;
+}
+
+.shift-status { 
+    padding: 0.75rem; 
+    border-radius: 8px; 
+    font-weight: 600; 
+    font-size: 0.9rem;
+    display: flex; 
+    align-items: center; 
+    gap: 0.5rem; 
+    margin-bottom: 0.75rem;
+    border: 1px solid;
+}
+
+.status-assigned { 
+    background: linear-gradient(135deg, rgba(39, 174, 96, 0.1) 0%, rgba(39, 174, 96, 0.05) 100%);
+    color: var(--success);
+    border-color: rgba(39, 174, 96, 0.2);
+}
+
+.status-empty { 
+    background: linear-gradient(135deg, rgba(231, 76, 60, 0.1) 0%, rgba(231, 76, 60, 0.05) 100%);
+    color: var(--danger);
+    border-color: rgba(231, 76, 60, 0.2);
+}
+
+.status-cancelled { 
+    background: linear-gradient(135deg, rgba(127, 140, 141, 0.1) 0%, rgba(127, 140, 141, 0.05) 100%);
+    color: #7f8c8d;
+    border-color: rgba(127, 140, 141, 0.2);
+}
+
+[data-testid="stMetricValue"] {
+    font-family: 'Rubik', sans-serif !important;
+    font-size: 2rem !important;
+    font-weight: 800 !important;
+    color: var(--primary) !important;
+}
+
+.stSuccess {
+    background: linear-gradient(135deg, rgba(39, 174, 96, 0.1) 0%, rgba(39, 174, 96, 0.05) 100%) !important;
+    border-right: 4px solid var(--success) !important;
+    border-radius: 8px !important;
+}
+
+.stError {
+    background: linear-gradient(135deg, rgba(231, 76, 60, 0.1) 0%, rgba(231, 76, 60, 0.05) 100%) !important;
+    border-right: 4px solid var(--danger) !important;
+    border-radius: 8px !important;
+}
+
+@keyframes slideIn {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+[data-testid="column"] {
+    animation: slideIn 0.5s ease-out;
+}
+</style>
+""", unsafe_allow_html=True)
 
 # Firebase
 def initialize_firebase():
-    """אתחול Firebase (אופציונלי)"""
     if not FIREBASE_AVAILABLE:
-        logger.warning("Firebase library not installed")
         return None
-    
     if not firebase_admin._apps:
         try:
             cred = credentials.Certificate(dict(st.secrets["firebase"]))
             firebase_admin.initialize_app(cred)
-            logger.info("Firebase initialized successfully")
+            logger.info("Firebase initialized")
         except Exception as e:
             logger.warning(f"Firebase not available: {e}")
             return None
     return firestore.client()
 
 db = initialize_firebase()
-
 
 # פונקציות עזר
 def parse_date_safe(date_str):
@@ -126,13 +273,11 @@ def parse_date_safe(date_str):
             continue
     raise ValueError(f"פורמט תאריך לא תקין: {date_str}")
 
-
 def get_day_name(date_str):
     try:
         return DAYS_HEB.get(parse_date_safe(date_str).strftime('%A'), "")
     except:
         return ""
-
 
 def validate_dataframes(req_df, shi_df):
     errors = []
@@ -142,11 +287,9 @@ def validate_dataframes(req_df, shi_df):
         errors.append("❌ עמודות חסרות בתבנית משמרות")
     return errors
 
-
 def get_atan_column(df):
     cols = [c for c in df.columns if "אט" in c and "מורשה" in c]
     return cols[0] if cols else None
-
 
 @st.cache_data(ttl=60)
 def get_balance():
@@ -158,7 +301,6 @@ def get_balance():
     except:
         pass
     return scores
-
 
 def auto_assign(dates, shi_df, req_df, balance):
     temp_schedule, temp_assigned = {}, {d: set() for d in dates}
@@ -189,7 +331,6 @@ def auto_assign(dates, shi_df, req_df, balance):
                 running_balance[best] = running_balance.get(best, 0) + 1
     
     return temp_schedule, temp_assigned
-
 
 @st.dialog("שיבוץ עובד למשמרת")
 def show_assignment_dialog(shift_key, date_str, station, shift_type, req_df, balance, shi_df):
@@ -248,44 +389,6 @@ def show_assignment_dialog(shift_key, date_str, station, shift_type, req_df, bal
             if st.button("❌ ביטול", use_container_width=True):
                 st.rerun()
 
-
-# פונקציית עזר ליצירת HTML של משמרת
-def render_shift_card(shift_row, date_str, idx, assigned, cancelled):
-    """יוצר HTML של כרטיס משמרת באמצעות התבניות"""
-    is_atan = "אט" in str(shift_row['סוג תקן'])
-    
-    # בחר סטטוס
-    if cancelled:
-        status_html = html_components.status_cancelled() if html_components else '<div class="shift-status status-cancelled">🚫 מבוטל</div>'
-    elif assigned:
-        status_html = html_components.status_assigned(assigned) if html_components else f'<div class="shift-status status-assigned">👤 {assigned}</div>'
-    else:
-        status_html = html_components.status_empty() if html_components else '<div class="shift-status status-empty">⚠️ חסר</div>'
-    
-    # צור כרטיס
-    if html_components:
-        return html_components.shift_card(
-            shift_type=shift_row['משמרת'],
-            shift_category=shift_row['סוג תקן'],
-            station=shift_row['תחנה'],
-            status_html=status_html,
-            is_atan=is_atan
-        )
-    else:
-        # Fallback ללא templates
-        atan_class = 'atan' if is_atan else ''
-        return f'''
-        <div class="shift-mini {atan_class}">
-            <div class="shift-top">
-                <div class="shift-title">{shift_row['משמרת']}</div>
-                <div class="shift-badge">{shift_row['סוג תקן']}</div>
-            </div>
-            <div class="shift-station">{shift_row['תחנה']}</div>
-            {status_html}
-        </div>
-        '''
-
-
 # Session State
 if 'final_schedule' not in st.session_state:
     st.session_state.final_schedule = {}
@@ -293,7 +396,6 @@ if 'assigned_today' not in st.session_state:
     st.session_state.assigned_today = {}
 if 'cancelled_shifts' not in st.session_state:
     st.session_state.cancelled_shifts = set()
-
 
 # Sidebar
 with st.sidebar:
@@ -337,7 +439,6 @@ with st.sidebar:
         with c2:
             st.metric("עובדים", len(set(st.session_state.final_schedule.values())))
 
-
 # Main
 st.title("📅 לוח שיבוצים")
 
@@ -380,13 +481,12 @@ if req_file and shi_file:
         header_cols = st.columns(7)
         for i, d in enumerate(dates[:7]):
             with header_cols[i]:
-                # שימוש בתבנית HTML
-                if html_components:
-                    header_html = html_components.day_header(get_day_name(d), d)
-                else:
-                    header_html = f'<div class="day-header"><span class="day-name">{get_day_name(d)}</span><span class="day-date">{d}</span></div>'
-                
-                st.markdown(header_html, unsafe_allow_html=True)
+                st.markdown(f'''
+                <div class="day-header">
+                    <span class="day-name">{get_day_name(d)}</span>
+                    <span class="day-date">{d}</span>
+                </div>
+                ''', unsafe_allow_html=True)
         
         # משמרות
         for idx in range(len(shi_df)):
@@ -398,10 +498,27 @@ if req_file and shi_file:
                     key = f"{d}_{s['תחנה']}_{s['משמרת']}_{idx}"
                     assigned = st.session_state.final_schedule.get(key)
                     cancelled = key in st.session_state.cancelled_shifts
+                    is_atan = "אט" in str(s['סוג תקן'])
+                    atan_class = 'atan' if is_atan else ''
                     
-                    # שימוש בפונקציה ליצירת HTML
-                    shift_html = render_shift_card(s, d, idx, assigned, cancelled)
-                    st.markdown(shift_html, unsafe_allow_html=True)
+                    # בניית HTML
+                    if cancelled:
+                        status_html = '<div class="shift-status status-cancelled"><span>🚫</span><span>מבוטל</span></div>'
+                    elif assigned:
+                        status_html = f'<div class="shift-status status-assigned"><span>👤</span><span>{assigned}</span></div>'
+                    else:
+                        status_html = '<div class="shift-status status-empty"><span>⚠️</span><span>חסר שיבוץ</span></div>'
+                    
+                    st.markdown(f'''
+                    <div class="shift-mini {atan_class}">
+                        <div class="shift-top">
+                            <div class="shift-title">{s['משמרת']}</div>
+                            <div class="shift-badge">{s['סוג תקן']}</div>
+                        </div>
+                        <div class="shift-station">{s['תחנה']}</div>
+                        {status_html}
+                    </div>
+                    ''', unsafe_allow_html=True)
                     
                     # כפתורי פעולה
                     if cancelled:
@@ -433,17 +550,23 @@ else:
     
     with st.expander("📖 הוראות"):
         st.markdown("""
-        ### 🚀 מערכת מודולרית משופרת!
+        ### 🚀 איך להשתמש?
         
-        **מבנה הפרויקט:**
-        - `app.py` - לוגיקה עסקית
-        - `assets/style.css` - עיצוב
-        - `templates/*.html` - תבניות HTML
-        - `components/html_templates.py` - מנהל תבניות
+        1. **העלה קבצים** - בקשות עובדים + תבנית משמרות (CSV)
+        2. **שיבוץ אוטומטי** - לחץ על הכפתור לשיבוץ חכם
+        3. **התאמות ידניות** - שבץ/הסר/בטל משמרות
+        4. **שמור/ייצא** - שמור ל-Database או ייצא ל-CSV
         
-        **שימוש:**
-        1. העלה קבצים
-        2. שבץ אוטומטית
-        3. התאם ידנית
-        4. שמור/ייצא
+        ### 📋 פורמט קבצים:
+        
+        **בקשות עובדים:**
+        - שם
+        - תאריך מבוקש
+        - משמרת
+        - תחנה
+        
+        **תבנית משמרות:**
+        - תחנה
+        - משמרת
+        - סוג תקן
         """)
