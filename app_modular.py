@@ -677,130 +677,128 @@ if req_file and shi_file:
         dates = sorted(req_df['תאריך מבוקש'].unique(), key=parse_date_safe)
         balance = get_balance()
         
-        # כפתור ייצוא - בחלק העליון
+        # כפתור ייצוא - תמיד זמין אם יש שיבוצים
         if st.session_state.final_schedule:
-            col_export, col_spacer = st.columns([1, 3])
-            with col_export:
-                if st.button("📥 ייצוא CSV מלא", use_container_width=True, type="secondary"):
-                    export_data = []
-                    
-                    # עבור על כל המשמרות המשובצות
-                    for shift_key, employee in st.session_state.final_schedule.items():
-                        # פרק את ה-key
-                        parts = shift_key.split('_')
-                        date_str = parts[0]
-                        station = parts[1]
-                        shift_type = parts[2]
-                        shift_idx = int(parts[3]) if len(parts) > 3 else 0
-                        
-                        # מצא את השורה המקורית בתבנית
-                        shift_row = None
-                        if shift_idx < len(shi_df):
-                            row = shi_df.iloc[shift_idx]
-                            # וודא שזו השורה הנכונה
-                            if row['תחנה'] == station and row['משמרת'] == shift_type:
-                                shift_row = row
-                        
-                        # אם לא נמצא, חפש ידנית
-                        if shift_row is None:
-                            matching = shi_df[(shi_df['תחנה'] == station) & (shi_df['משמרת'] == shift_type)]
-                            if not matching.empty:
-                                shift_row = matching.iloc[0]
-                        
-                        # חפש שעות בקובץ בקשות
-                        hours = ""
-                        emp_request = req_df[
-                            (req_df['שם'] == employee) &
-                            (req_df['תאריך מבוקש'] == date_str) &
-                            (req_df['משמרת'] == shift_type)
-                        ]
-                        
-                        if not emp_request.empty:
-                            time_cols = [c for c in emp_request.columns if 'שע' in c or 'זמן' in c or 'hour' in c.lower() or 'time' in c.lower()]
-                            if time_cols:
-                                hours_val = emp_request.iloc[0][time_cols[0]]
-                                if pd.notna(hours_val):
-                                    hours = str(hours_val)
-                        
-                        # חפש תחנה מבוקשת
-                        requested_station = station
-                        if not emp_request.empty and 'תחנה' in emp_request.columns:
-                            requested_station = emp_request.iloc[0]['תחנה']
-                        
-                        export_data.append({
-                            'תאריך': date_str,
-                            'יום': get_day_name(date_str),
-                            'שעות': hours,
-                            'משמרת': shift_type,
-                            'תחנה משובצת': station,
-                            'תחנה מבוקשת': requested_station,
-                            'סוג תקן': shift_row['סוג תקן'] if shift_row is not None else '',
-                            'שם עובד': employee,
-                            'מאזן משמרות': balance.get(employee, 0),
-                            'סטטוס': 'משובץ'
-                        })
-                    
-                    # הוסף משמרות מבוטלות
-                    cancelled_data = []
-                    for shift_key in st.session_state.cancelled_shifts:
-                        parts = shift_key.split('_')
-                        date_str = parts[0]
-                        station = parts[1]
-                        shift_type = parts[2]
-                        shift_idx = int(parts[3]) if len(parts) > 3 else 0
-                        
-                        shift_row = None
-                        if shift_idx < len(shi_df):
-                            row = shi_df.iloc[shift_idx]
-                            if row['תחנה'] == station and row['משמרת'] == shift_type:
-                                shift_row = row
-                        
-                        if shift_row is None:
-                            matching = shi_df[(shi_df['תחנה'] == station) & (shi_df['משמרת'] == shift_type)]
-                            if not matching.empty:
-                                shift_row = matching.iloc[0]
-                        
-                        cancelled_data.append({
-                            'תאריך': date_str,
-                            'יום': get_day_name(date_str),
-                            'שעות': '',
-                            'משמרת': shift_type,
-                            'תחנה משובצת': station,
-                            'תחנה מבוקשת': '',
-                            'סוג תקן': shift_row['סוג תקן'] if shift_row is not None else '',
-                            'שם עובד': '',
-                            'מאזן משמרות': '',
-                            'סטטוס': 'מבוטל'
-                        })
-                    
-                    # איחוד הנתונים
-                    all_export_data = export_data + cancelled_data
-                    
-                    # המר לטבלה וייצא
-                    if all_export_data:
-                        export_df = pd.DataFrame(all_export_data)
-                        
-                        # מיון לפי תאריך ואז תחנה
-                        export_df['תאריך_sort'] = export_df['תאריך'].apply(parse_date_safe)
-                        export_df = export_df.sort_values(['תאריך_sort', 'תחנה משובצת', 'משמרת'])
-                        export_df = export_df.drop('תאריך_sort', axis=1)
-                        
-                        csv = export_df.to_csv(index=False, encoding='utf-8-sig')
-                        st.download_button(
-                            "⬇️ הורד שיבוצים מלא",
-                            csv,
-                            f"shibutz_full_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
-                            mime="text/csv",
-                            use_container_width=True,
-                            key="download_export"
-                        )
-                        
-                        # הצג תצוגה מקדימה
-                        with st.expander("👁️ תצוגה מקדימה של הייצוא"):
-                            st.dataframe(export_df, use_container_width=True, height=300)
-                            st.caption(f"📊 סה\"כ: {len(export_data)} משמרות משובצות + {len(cancelled_data)} משמרות מבוטלות")
-                    else:
-                        st.warning("אין שיבוצים לייצוא")
+            export_data = []
+            
+            # עבור על כל המשמרות המשובצות
+            for shift_key, employee in st.session_state.final_schedule.items():
+                # פרק את ה-key
+                parts = shift_key.split('_')
+                date_str = parts[0]
+                station = parts[1]
+                shift_type = parts[2]
+                shift_idx = int(parts[3]) if len(parts) > 3 else 0
+                
+                # מצא את השורה המקורית בתבנית
+                shift_row = None
+                if shift_idx < len(shi_df):
+                    row = shi_df.iloc[shift_idx]
+                    # וודא שזו השורה הנכונה
+                    if row['תחנה'] == station and row['משמרת'] == shift_type:
+                        shift_row = row
+                
+                # אם לא נמצא, חפש ידנית
+                if shift_row is None:
+                    matching = shi_df[(shi_df['תחנה'] == station) & (shi_df['משמרת'] == shift_type)]
+                    if not matching.empty:
+                        shift_row = matching.iloc[0]
+                
+                # חפש שעות בקובץ בקשות
+                hours = ""
+                emp_request = req_df[
+                    (req_df['שם'] == employee) &
+                    (req_df['תאריך מבוקש'] == date_str) &
+                    (req_df['משמרת'] == shift_type)
+                ]
+                
+                if not emp_request.empty:
+                    time_cols = [c for c in emp_request.columns if 'שע' in c or 'זמן' in c or 'hour' in c.lower() or 'time' in c.lower()]
+                    if time_cols:
+                        hours_val = emp_request.iloc[0][time_cols[0]]
+                        if pd.notna(hours_val):
+                            hours = str(hours_val)
+                
+                # חפש תחנה מבוקשת
+                requested_station = station
+                if not emp_request.empty and 'תחנה' in emp_request.columns:
+                    requested_station = emp_request.iloc[0]['תחנה']
+                
+                export_data.append({
+                    'תאריך': date_str,
+                    'יום': get_day_name(date_str),
+                    'שעות': hours,
+                    'משמרת': shift_type,
+                    'תחנה משובצת': station,
+                    'תחנה מבוקשת': requested_station,
+                    'סוג תקן': shift_row['סוג תקן'] if shift_row is not None else '',
+                    'שם עובד': employee,
+                    'מאזן משמרות': balance.get(employee, 0),
+                    'סטטוס': 'משובץ'
+                })
+            
+            # הוסף משמרות מבוטלות
+            cancelled_data = []
+            for shift_key in st.session_state.cancelled_shifts:
+                parts = shift_key.split('_')
+                date_str = parts[0]
+                station = parts[1]
+                shift_type = parts[2]
+                shift_idx = int(parts[3]) if len(parts) > 3 else 0
+                
+                shift_row = None
+                if shift_idx < len(shi_df):
+                    row = shi_df.iloc[shift_idx]
+                    if row['תחנה'] == station and row['משמרת'] == shift_type:
+                        shift_row = row
+                
+                if shift_row is None:
+                    matching = shi_df[(shi_df['תחנה'] == station) & (shi_df['משמרת'] == shift_type)]
+                    if not matching.empty:
+                        shift_row = matching.iloc[0]
+                
+                cancelled_data.append({
+                    'תאריך': date_str,
+                    'יום': get_day_name(date_str),
+                    'שעות': '',
+                    'משמרת': shift_type,
+                    'תחנה משובצת': station,
+                    'תחנה מבוקשת': '',
+                    'סוג תקן': shift_row['סוג תקן'] if shift_row is not None else '',
+                    'שם עובד': '',
+                    'מאזן משמרות': '',
+                    'סטטוס': 'מבוטל'
+                })
+            
+            # איחוד הנתונים
+            all_export_data = export_data + cancelled_data
+            
+            # המר לטבלה
+            if all_export_data:
+                export_df = pd.DataFrame(all_export_data)
+                
+                # מיון לפי תאריך ואז תחנה
+                export_df['תאריך_sort'] = export_df['תאריך'].apply(parse_date_safe)
+                export_df = export_df.sort_values(['תאריך_sort', 'תחנה משובצת', 'משמרת'])
+                export_df = export_df.drop('תאריך_sort', axis=1)
+                
+                csv = export_df.to_csv(index=False, encoding='utf-8-sig')
+                
+                # כפתור הורדה
+                col_export, col_preview = st.columns([1, 3])
+                with col_export:
+                    st.download_button(
+                        label="📥 ייצא CSV מלא",
+                        data=csv,
+                        file_name=f"shibutz_full_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+                        mime="text/csv",
+                        use_container_width=True,
+                        type="primary"
+                    )
+                with col_preview:
+                    with st.expander("👁️ תצוגה מקדימה"):
+                        st.dataframe(export_df.head(20), use_container_width=True, height=200)
+                        st.caption(f"📊 {len(export_data)} משובצות + {len(cancelled_data)} מבוטלות")
         
         st.markdown("---")
         
