@@ -347,18 +347,22 @@ def auto_assign(dates, shi_df, req_df, balance):
         """מחלץ שעות מבקשת עובד"""
         time_cols = [c for c in req_df.columns if 'שע' in c or 'זמן' in c or 'hour' in c.lower() or 'time' in c.lower()]
         if time_cols:
-            hours_val = row.get(time_cols[0])
+            hours_val = row[time_cols[0]] if time_cols[0] in row.index else None
             if pd.notna(hours_val):
-                return str(hours_val).strip()
+                # נקה רווחים ותווים מיוחדים
+                hours_str = str(hours_val).strip().replace(' ', '')
+                return hours_str
         return None
     
     def get_hours_from_shift(shift_row):
         """מחלץ שעות מתבנית משמרת"""
         time_cols = [c for c in shi_df.columns if 'שע' in c or 'זמן' in c or 'hour' in c.lower() or 'time' in c.lower()]
         if time_cols:
-            hours_val = shift_row.get(time_cols[0])
+            hours_val = shift_row[time_cols[0]] if time_cols[0] in shift_row.index else None
             if pd.notna(hours_val):
-                return str(hours_val).strip()
+                # נקה רווחים ותווים מיוחדים
+                hours_str = str(hours_val).strip().replace(' ', '')
+                return hours_str
         return None
     
     # מכסה שבועית (ניתן להגדרה)
@@ -380,19 +384,34 @@ def auto_assign(dates, shi_df, req_df, balance):
                 (~req_df['שם'].isin(temp_assigned[date_str]))  # לא עובד היום
             ].copy()
             
-            # בדיקת שעות - התאמה מדויקת
+            # בדיקת שעות - התאמה מדויקת (רק אם ההגדרה מופעלת)
+            strict_hours = st.session_state.get('strict_hours_matching', True)
             shift_hours = get_hours_from_shift(shift_row)
-            if shift_hours and not potential.empty:
+            
+            # DEBUG: הדפס מידע על השעות
+            if shift_hours and strict_hours:
+                logger.info(f"משמרת {shift_key}: שעות במשמרת = '{shift_hours}'")
+            
+            if strict_hours and shift_hours and not potential.empty:
                 # סנן רק עובדים שביקשו את אותן שעות בדיוק
                 matching_hours = []
                 for _, emp_row in potential.iterrows():
                     emp_hours = get_hours_from_request(emp_row)
+                    emp_name = emp_row['שם']
+                    
+                    # DEBUG: הדפס השוואה
+                    logger.info(f"  עובד {emp_name}: שעות בבקשה = '{emp_hours}' | התאמה = {emp_hours == shift_hours}")
+                    
                     if emp_hours and emp_hours == shift_hours:
-                        matching_hours.append(emp_row['שם'])
+                        matching_hours.append(emp_name)
                 
                 if matching_hours:
                     potential = potential[potential['שם'].isin(matching_hours)]
-                # אם יש עמודת שעות אבל אין התאמות - potential יהיה ריק
+                    logger.info(f"  ✅ נמצאו {len(matching_hours)} עובדים עם התאמת שעות")
+                else:
+                    # אין התאמות - רוקן את potential
+                    logger.warning(f"  ⚠️ אין עובדים עם התאמת שעות ל-{shift_hours}")
+                    potential = potential.iloc[0:0]  # DataFrame ריק
             
             # בדיקת מכסה שבועית
             if not potential.empty and week_key:
@@ -625,6 +644,20 @@ with st.sidebar:
     # הגדרות שיבוץ
     st.markdown("### ⚙️ הגדרות שיבוץ")
     
+    # בדיקת שעות
+    strict_hours = st.checkbox(
+        "בדיקת שעות מדויקת",
+        value=st.session_state.get('strict_hours_matching', True),
+        help="אם מסומן: עובד חייב לבקש את אותן שעות בדיוק. אם לא מסומן: התעלם משעות"
+    )
+    st.session_state.strict_hours_matching = strict_hours
+    
+    if strict_hours:
+        st.caption("✅ רק עובדים ששעותיהם תואמות בדיוק ישובצו")
+    else:
+        st.caption("⚠️ התעלמות משעות - שיבוץ לפי תאריך/משמרת/תחנה בלבד")
+    
+    # מכסה שבועית
     weekly_limit = st.number_input(
         "מכסה שבועית (משמרות/שבוע)",
         min_value=1,
