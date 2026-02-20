@@ -279,6 +279,19 @@ def get_day_name(date_str):
     except:
         return ""
 
+def get_week_start(date_str):
+    """מחזיר תאריך ראשון של השבוע (ראשון) לתאריך נתון"""
+    try:
+        dt = parse_date_safe(date_str)
+        if dt:
+            # חשב כמה ימים עברו מאז ראשון
+            days_since_sunday = (dt.weekday() + 1) % 7
+            sunday = dt - pd.Timedelta(days=days_since_sunday)
+            return sunday.strftime('%Y-%m-%d')
+    except:
+        pass
+    return date_str
+
 def validate_dataframes(req_df, shi_df):
     errors = []
     if set(REQUIRED_REQUEST_COLUMNS) - set(req_df.columns):
@@ -314,28 +327,101 @@ def auto_assign(dates, shi_df, req_df, balance):
     running_balance = balance.copy()
     atan_col = get_atan_column(req_df)
     
+    # עקוב אחר שיבוצים שבועיים
+    weekly_assignments = {}  # {employee: {week_key: count}}
+    
+    def get_week_key(date_str):
+        """מחזיר מפתח שבוע (ראשון-שבת) לתאריך נתון"""
+        try:
+            date_obj = parse_date_safe(date_str)
+            if date_obj:
+                # חשב תאריך ראשון השבוע
+                days_since_sunday = (date_obj.weekday() + 1) % 7
+                sunday = date_obj - pd.Timedelta(days=days_since_sunday)
+                return sunday.strftime('%Y-%m-%d')
+        except:
+            pass
+        return date_str
+    
+    def get_hours_from_request(row):
+        """מחלץ שעות מבקשת עובד"""
+        time_cols = [c for c in req_df.columns if 'שע' in c or 'זמן' in c or 'hour' in c.lower() or 'time' in c.lower()]
+        if time_cols:
+            hours_val = row.get(time_cols[0])
+            if pd.notna(hours_val):
+                return str(hours_val).strip()
+        return None
+    
+    def get_hours_from_shift(shift_row):
+        """מחלץ שעות מתבנית משמרת"""
+        time_cols = [c for c in shi_df.columns if 'שע' in c or 'זמן' in c or 'hour' in c.lower() or 'time' in c.lower()]
+        if time_cols:
+            hours_val = shift_row.get(time_cols[0])
+            if pd.notna(hours_val):
+                return str(hours_val).strip()
+        return None
+    
+    # מכסה שבועית (ניתן להגדרה)
+    WEEKLY_LIMIT = st.session_state.get('weekly_shift_limit', 5)  # ברירת מחדל: 5 משמרות לשבוע
+    
     for date_str in dates:
+        week_key = get_week_key(date_str)
+        
         for idx, shift_row in shi_df.iterrows():
             shift_key = f"{date_str}_{shift_row['תחנה']}_{shift_row['משמרת']}_{idx}"
             if shift_key in st.session_state.cancelled_shifts:
                 continue
             
+            # שלב 1: סינון מועמדים - עם כללים חדשים
             potential = req_df[
                 (req_df['תאריך מבוקש'] == date_str) &
                 (req_df['משמרת'] == shift_row['משמרת']) &
                 (req_df['תחנה'] == shift_row['תחנה']) &
-                (~req_df['שם'].isin(temp_assigned[date_str]))
+                (~req_df['שם'].isin(temp_assigned[date_str]))  # לא עובד היום
             ].copy()
             
+            # בדיקת שעות - התאמה מדויקת
+            shift_hours = get_hours_from_shift(shift_row)
+            if shift_hours and not potential.empty:
+                # סנן רק עובדים שביקשו את אותן שעות בדיוק
+                matching_hours = []
+                for _, emp_row in potential.iterrows():
+                    emp_hours = get_hours_from_request(emp_row)
+                    if emp_hours and emp_hours == shift_hours:
+                        matching_hours.append(emp_row['שם'])
+                
+                if matching_hours:
+                    potential = potential[potential['שם'].isin(matching_hours)]
+                # אם יש עמודת שעות אבל אין התאמות - potential יהיה ריק
+            
+            # בדיקת מכסה שבועית
+            if not potential.empty and week_key:
+                available_employees = []
+                for emp_name in potential['שם'].unique():
+                    emp_week_count = weekly_assignments.get(emp_name, {}).get(week_key, 0)
+                    if emp_week_count < WEEKLY_LIMIT:
+                        available_employees.append(emp_name)
+                
+                if available_employees:
+                    potential = potential[potential['שם'].isin(available_employees)]
+            
+            # שלב 2: בדיקת אט"ן
             if "אט" in str(shift_row['סוג תקן']) and atan_col:
                 potential = potential[potential[atan_col] == 'כן']
             
+            # שלב 3 + 4: מיון לפי מאזן ושיבוץ
             if not potential.empty:
                 potential['score'] = potential['שם'].map(lambda x: running_balance.get(x, 0))
                 best = potential.sort_values('score').iloc[0]['שם']
                 temp_schedule[shift_key] = best
                 temp_assigned[date_str].add(best)
                 running_balance[best] = running_balance.get(best, 0) + 1
+                
+                # עדכן ספירה שבועית
+                if week_key:
+                    if best not in weekly_assignments:
+                        weekly_assignments[best] = {}
+                    weekly_assignments[best][week_key] = weekly_assignments[best].get(week_key, 0) + 1
     
     return temp_schedule, temp_assigned
 
@@ -533,6 +619,22 @@ with st.sidebar:
     st.markdown("### 📁 קבצים")
     req_file = st.file_uploader("בקשות עובדים", type=['csv'])
     shi_file = st.file_uploader("תבנית משמרות", type=['csv'])
+    
+    st.divider()
+    
+    # הגדרות שיבוץ
+    st.markdown("### ⚙️ הגדרות שיבוץ")
+    
+    weekly_limit = st.number_input(
+        "מכסה שבועית (משמרות/שבוע)",
+        min_value=1,
+        max_value=7,
+        value=st.session_state.get('weekly_shift_limit', 5),
+        help="מספר מקסימלי של משמרות שעובד יכול לעבוד בשבוע אחד"
+    )
+    st.session_state.weekly_shift_limit = weekly_limit
+    
+    st.caption(f"📊 עובד יכול לעבוד עד {weekly_limit} משמרות בשבוע")
     
     st.divider()
     
@@ -948,19 +1050,89 @@ if req_file and shi_file:
                                 if available.empty:
                                     reason = f"כל המבקשים משובצים ({len(potential)})"
                                 else:
-                                    # בדוק אט"ן
-                                    if "אט" in str(shift_row['סוג תקן']):
-                                        atan_col = get_atan_column(req_df)
-                                        if atan_col:
-                                            atan_available = available[available[atan_col] == 'כן']
-                                            if atan_available.empty:
-                                                reason = f"אין מורשי אט\"ן ({len(available)} פנויים)"
+                                    # בדוק התאמת שעות
+                                    time_cols_shift = [c for c in shi_df.columns if 'שע' in c or 'זמן' in c or 'hour' in c.lower()]
+                                    time_cols_req = [c for c in req_df.columns if 'שע' in c or 'זמן' in c or 'hour' in c.lower()]
+                                    
+                                    if time_cols_shift and time_cols_req:
+                                        shift_hours = shift_row.get(time_cols_shift[0])
+                                        if pd.notna(shift_hours):
+                                            shift_hours_str = str(shift_hours).strip()
+                                            # בדוק כמה מהזמינים התאימו בשעות
+                                            matching_hours = 0
+                                            for _, emp_row in available.iterrows():
+                                                emp_hours = emp_row.get(time_cols_req[0])
+                                                if pd.notna(emp_hours) and str(emp_hours).strip() == shift_hours_str:
+                                                    matching_hours += 1
+                                            
+                                            if matching_hours == 0:
+                                                reason = f"אין התאמה לשעות ({len(available)} פנויים)"
+                                            else:
+                                                # יש התאמה בשעות, בדוק סיבות אחרות
+                                                # בדוק מכסה שבועית
+                                                WEEKLY_LIMIT = st.session_state.get('weekly_shift_limit', 5)
+                                                week_start = get_week_start(date_str)
+                                                
+                                                employees_under_limit = []
+                                                for emp_name in available['שם'].unique():
+                                                    # ספור כמה משמרות לעובד השבוע
+                                                    week_count = 0
+                                                    for assigned_date in st.session_state.assigned_today.keys():
+                                                        if get_week_start(assigned_date) == week_start:
+                                                            if emp_name in st.session_state.assigned_today[assigned_date]:
+                                                                week_count += 1
+                                                    
+                                                    if week_count < WEEKLY_LIMIT:
+                                                        employees_under_limit.append(emp_name)
+                                                
+                                                if not employees_under_limit:
+                                                    reason = f"כולם עברו מכסה שבועית ({len(available)} פנויים)"
+                                                else:
+                                                    # יש זמינים עם התאמת שעות ומתחת למכסה
+                                                    # בדוק אט"ן
+                                                    if "אט" in str(shift_row['סוג תקן']):
+                                                        atan_col = get_atan_column(req_df)
+                                                        if atan_col:
+                                                            atan_available = available[
+                                                                (available[atan_col] == 'כן') &
+                                                                (available['שם'].isin(employees_under_limit))
+                                                            ]
+                                                            if atan_available.empty:
+                                                                reason = f"אין מורשי אט\"ן ({len(employees_under_limit)} פנויים)"
+                                                            else:
+                                                                reason = "לא ידוע"
+                                                        else:
+                                                            reason = "אין עמודת אט\"ן"
+                                                    else:
+                                                        reason = "לא ידוע"
+                                        else:
+                                            # אין שעות במשמרת, המשך לבדיקות רגילות
+                                            if "אט" in str(shift_row['סוג תקן']):
+                                                atan_col = get_atan_column(req_df)
+                                                if atan_col:
+                                                    atan_available = available[available[atan_col] == 'כן']
+                                                    if atan_available.empty:
+                                                        reason = f"אין מורשי אט\"ן ({len(available)} פנויים)"
+                                                    else:
+                                                        reason = "לא ידוע"
+                                                else:
+                                                    reason = "אין עמודת אט\"ן"
                                             else:
                                                 reason = "לא ידוע"
-                                        else:
-                                            reason = "אין עמודת אט\"ן"
                                     else:
-                                        reason = "לא ידוע"
+                                        # אין עמודת שעות, המשך לבדיקות רגילות
+                                        if "אט" in str(shift_row['סוג תקן']):
+                                            atan_col = get_atan_column(req_df)
+                                            if atan_col:
+                                                atan_available = available[available[atan_col] == 'כן']
+                                                if atan_available.empty:
+                                                    reason = f"אין מורשי אט\"ן ({len(available)} פנויים)"
+                                                else:
+                                                    reason = "לא ידוע"
+                                            else:
+                                                reason = "אין עמודת אט\"ן"
+                                        else:
+                                            reason = "לא ידוע"
                             
                             missing_shifts.append({
                                 'תאריך': date_str,
