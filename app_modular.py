@@ -14,7 +14,8 @@ logger = logging.getLogger(__name__)
 
 # קבועים
 REQUIRED_REQUEST_COLUMNS = ['שם', 'תאריך מבוקש', 'משמרת', 'תחנה']
-REQUIRED_SHIFT_COLUMNS = ['תחנה', 'משמרת', 'סוג תקן']
+REQUIRED_SHIFT_COLUMNS = ['משמרת', 'תחנה', 'סוג תקן']  # סדר מדויק כמו בקובץ
+OPTIONAL_SHIFT_COLUMNS = ['שעות', 'תפקיד']  # עמודות אופציונליות
 DAYS_HEB = {
     'Sunday': 'ראשון', 'Monday': 'שני', 'Tuesday': 'שלישי',
     'Wednesday': 'רביעי', 'Thursday': 'חמישי', 'Friday': 'שישי', 'Saturday': 'שבת'
@@ -281,17 +282,33 @@ def get_week_start(date_str):
 def validate_dataframes(req_df, shi_df):
     """בדיקת תקינות קבצים"""
     errors = []
+    
+    # בדיקת קובץ בקשות
     if set(REQUIRED_REQUEST_COLUMNS) - set(req_df.columns):
-        errors.append("❌ עמודות חסרות בקובץ בקשות")
+        missing = set(REQUIRED_REQUEST_COLUMNS) - set(req_df.columns)
+        errors.append(f"❌ עמודות חסרות בקובץ בקשות: {', '.join(missing)}")
+    
+    # בדיקת קובץ משמרות
     if set(REQUIRED_SHIFT_COLUMNS) - set(shi_df.columns):
-        errors.append("❌ עמודות חסרות בתבנית משמרות")
+        missing = set(REQUIRED_SHIFT_COLUMNS) - set(shi_df.columns)
+        errors.append(f"❌ עמודות חסרות בתבנית משמרות: {', '.join(missing)}")
+    
     return errors
 
 def get_atan_column(df):
-    """מציאת עמודת אט"ן"""
+    """מציאת עמודת אט"ן - תומך בשמות שונים"""
+    # רשימת שמות אפשריים
+    possible_names = ['אטן', 'אט"ן', 'אט״ן', 'אטען', 'atan']
+    
     for col in df.columns:
+        col_lower = col.lower().strip()
+        # בדוק אם יש התאמה חלקית
+        if any(name in col_lower for name in possible_names):
+            return col
+        # בדוק אם יש אט בעמודה
         if 'אט' in col:
             return col
+    
     return None
 
 def get_balance():
@@ -796,14 +813,28 @@ st.title("📅 לוח שיבוצים")
 
 if req_file and shi_file:
     try:
-        req_df = pd.read_csv(req_file, encoding='utf-8-sig')
-        shi_df = pd.read_csv(shi_file, encoding='utf-8-sig')
+        # קרא קבצים עם טיפול בגרשיים
+        req_df = pd.read_csv(req_file, encoding='utf-8-sig', quotechar='"', doublequote=True)
+        shi_df = pd.read_csv(shi_file, encoding='utf-8-sig', quotechar='"', doublequote=True)
+        
+        # נקה רווחים מיותרים משמות עמודות
+        req_df.columns = req_df.columns.str.strip()
+        shi_df.columns = shi_df.columns.str.strip()
         
         errors = validate_dataframes(req_df, shi_df)
         if errors:
             for e in errors:
                 st.error(e)
             st.stop()
+        
+        # הצג מידע על הקבצים
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.success(f"✅ {len(req_df)} בקשות")
+        with col2:
+            st.success(f"✅ {len(shi_df)} משמרות")
+        with col3:
+            st.success(f"✅ {len(req_df['שם'].unique())} עובדים")
         
         dates = sorted(req_df['תאריך מבוקש'].unique(), key=parse_date_safe)
         balance = get_balance()
