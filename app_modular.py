@@ -703,66 +703,37 @@ with st.sidebar:
             else:
                 try:
                     with st.spinner('שומר...'):
-                        batch = db.batch()
-                        employees_data = {}
-                        
+                        # ספור משמרות לכל עובד
+                        employee_count = {}
                         for shift_key, employee in st.session_state.final_schedule.items():
-                            parts = shift_key.split('_', 3)
-                            date_str, station, shift_type = parts[0], parts[1], parts[2]
-                            
-                            if employee not in employees_data:
-                                employees_data[employee] = {'shifts': [], 'total_shifts': 0}
-                            
-                            employees_data[employee]['shifts'].append({
-                                'date': date_str,
-                                'station': station,
-                                'shift_type': shift_type,
-                                'shift_key': shift_key
-                            })
-                            employees_data[employee]['total_shifts'] += 1
-                            
-                            doc_ref = db.collection('shifts').document(shift_key)
-                            batch.set(doc_ref, {
-                                'date': date_str,
-                                'station': station,
-                                'shift_type': shift_type,
-                                'employee': employee,
-                                'timestamp': firestore.SERVER_TIMESTAMP,
-                                'status': 'assigned'
-                            })
+                            employee_count[employee] = employee_count.get(employee, 0) + 1
                         
-                        for shift_key in st.session_state.cancelled_shifts:
-                            parts = shift_key.split('_', 3)
-                            doc_ref = db.collection('shifts').document(shift_key)
-                            batch.set(doc_ref, {
-                                'date': parts[0],
-                                'station': parts[1],
-                                'shift_type': parts[2],
-                                'employee': None,
-                                'timestamp': firestore.SERVER_TIMESTAMP,
-                                'status': 'cancelled'
-                            })
-                        
-                        for employee, data in employees_data.items():
-                            doc_ref = db.collection('employee_history').document(employee)
+                        # עדכן רק את מספר המשמרות המצטבר לכל עובד
+                        batch = db.batch()
+                        for employee, current_shifts in employee_count.items():
+                            doc_ref = db.collection('employees').document(employee)
+                            
+                            # קרא מספר קיים אם יש
                             existing_doc = doc_ref.get()
-                            previous_total = existing_doc.to_dict().get('total_shifts', 0) if existing_doc.exists else 0
+                            previous_total = 0
+                            if existing_doc.exists:
+                                previous_total = existing_doc.to_dict().get('total_shifts', 0)
                             
+                            # שמור רק שם + מספר מצטבר
+                            new_total = previous_total + current_shifts
                             batch.set(doc_ref, {
                                 'name': employee,
-                                'shifts': data['shifts'],
-                                'current_period_total': data['total_shifts'],
-                                'total_shifts': previous_total + data['total_shifts'],
-                                'last_updated': firestore.SERVER_TIMESTAMP,
-                                'last_shift_date': max([s['date'] for s in data['shifts']]) if data['shifts'] else None
-                            }, merge=False)
+                                'total_shifts': new_total
+                            })
                         
                         batch.commit()
-                        st.success(f"✅ נשמרו {len(st.session_state.final_schedule)} משמרות + {len(employees_data)} עובדים!")
+                        st.success(f"✅ עודכנו {len(employee_count)} עובדים ב-Database!")
                         
-                        with st.expander("📊 פירוט"):
-                            for employee, data in employees_data.items():
-                                st.write(f"**{employee}**: {data['total_shifts']} משמרות")
+                        with st.expander("📊 פירוט עדכון"):
+                            for employee, shifts in sorted(employee_count.items(), key=lambda x: x[1], reverse=True):
+                                doc_ref = db.collection('employees').document(employee)
+                                total = doc_ref.get().to_dict().get('total_shifts', 0)
+                                st.write(f"**{employee}**: {shifts} חדשות → סה\"כ {total} משמרות")
                 
                 except Exception as e:
                     st.error(f"❌ שגיאה: {str(e)}")
@@ -821,7 +792,7 @@ with st.sidebar:
                 try:
                     with st.spinner('מייצא מ-Database...'):
                         # קרא את כל העובדים
-                        employees_ref = db.collection('employee_history')
+                        employees_ref = db.collection('employees')
                         docs = employees_ref.stream()
                         
                         employees_data = []
@@ -829,15 +800,12 @@ with st.sidebar:
                             data = doc.to_dict()
                             employees_data.append({
                                 'שם': data.get('name', ''),
-                                'סה"כ משמרות נוכחי': data.get('current_period_total', 0),
-                                'סה"כ משמרות מצטבר': data.get('total_shifts', 0),
-                                'משמרת אחרונה': data.get('last_shift_date', ''),
-                                'עדכון אחרון': str(data.get('last_updated', ''))
+                                'סה"כ משמרות': data.get('total_shifts', 0)
                             })
                         
                         if employees_data:
                             employees_df = pd.DataFrame(employees_data)
-                            employees_df = employees_df.sort_values('סה"כ משמרות מצטבר', ascending=False)
+                            employees_df = employees_df.sort_values('סה"כ משמרות', ascending=False)
                             
                             csv = employees_df.to_csv(index=False, encoding='utf-8-sig')
                             st.download_button(
@@ -848,6 +816,10 @@ with st.sidebar:
                                 use_container_width=True
                             )
                             st.info(f"👥 {len(employees_data)} עובדים ב-Database")
+                            
+                            # תצוגה מקדימה
+                            with st.expander("👁️ תצוגה מקדימה"):
+                                st.dataframe(employees_df.head(10), use_container_width=True, hide_index=True)
                         else:
                             st.warning("אין עובדים ב-Database")
                 
