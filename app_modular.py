@@ -232,6 +232,26 @@ html, body, [class*="css"] {
 .shift-station {
     font-size: 0.85rem;
     color: #7f8c8d;
+    margin-top: 0.25rem;
+}
+
+.shift-station strong {
+    color: #5a6c7d;
+    font-weight: 600;
+}
+
+/* סימון מיוחד לאט"ן */
+.shift-type-atan {
+    font-weight: 600;
+    color: #d32f2f !important;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+}
+
+.shift-type-atan::before {
+    content: "🔒";
+    font-size: 0.9em;
 }
 
 .status-badge {
@@ -1131,13 +1151,15 @@ if req_file and shi_file:
                             shift_type_class = "night"
                         
                         if shift_key in st.session_state.cancelled_shifts:
+                            is_atan = "אט" in str(shift_row['סוג תקן'])
+                            atan_badge = " 🔒" if is_atan else ""
                             st.markdown(f'''
                             <div class="shift-card cancelled {shift_type_class}">
                                 <div class="shift-header">
-                                    <span class="shift-title">{shift_row['משמרת']}</span>
+                                    <span class="shift-title">{shift_row['משמרת']}{atan_badge}</span>
                                     <span class="status-badge status-cancelled">מבוטל</span>
                                 </div>
-                                <div class="shift-station">{shift_row['תחנה']}</div>
+                                <div class="shift-station" style="font-size: 0.85rem;">{shift_row['תחנה']} • {shift_row['סוג תקן']}</div>
                             </div>
                             ''', unsafe_allow_html=True)
                             
@@ -1147,14 +1169,16 @@ if req_file and shi_file:
                         
                         elif shift_key in st.session_state.final_schedule:
                             employee = st.session_state.final_schedule[shift_key]
+                            is_atan = "אט" in str(shift_row['סוג תקן'])
+                            atan_badge = " 🔒" if is_atan else ""
                             st.markdown(f'''
                             <div class="shift-card assigned {shift_type_class}">
                                 <div class="shift-header">
-                                    <span class="shift-title">{shift_row['משמרת']}</span>
+                                    <span class="shift-title">{shift_row['משמרת']}{atan_badge}</span>
                                     <span class="status-badge status-assigned">✓</span>
                                 </div>
                                 <div class="shift-employee">{employee}</div>
-                                <div class="shift-station">{shift_row['תחנה']}</div>
+                                <div class="shift-station" style="font-size: 0.85rem;">{shift_row['תחנה']} • {shift_row['סוג תקן']}</div>
                             </div>
                             ''', unsafe_allow_html=True)
                             
@@ -1171,13 +1195,15 @@ if req_file and shi_file:
                                     st.rerun()
                         
                         else:
+                            is_atan = "אט" in str(shift_row['סוג תקן'])
+                            atan_badge = " 🔒" if is_atan else ""
                             st.markdown(f'''
                             <div class="shift-card empty {shift_type_class}">
                                 <div class="shift-header">
-                                    <span class="shift-title">{shift_row['משמרת']}</span>
+                                    <span class="shift-title">{shift_row['משמרת']}{atan_badge}</span>
                                     <span class="status-badge status-empty">ריק</span>
                                 </div>
-                                <div class="shift-station">{shift_row['תחנה']}</div>
+                                <div class="shift-station" style="font-size: 0.85rem;">{shift_row['תחנה']} • {shift_row['סוג תקן']}</div>
                             </div>
                             ''', unsafe_allow_html=True)
                             
